@@ -1,0 +1,86 @@
+name: Build and Release Helm Chart
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'uptime-kuma/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'uptime-kuma/**'
+  workflow_dispatch:
+    
+
+env:
+  REGISTRY: ghcr.io
+  CHART_NAME: uptime-kuma
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Lint Helm Chart
+        run: |
+          helm lint uptime-kuma/
+
+      - name: Template Helm Chart
+        run: |
+          helm template test-release uptime-kuma/ --debug
+
+      - name: Package Helm Chart
+        run: |
+          helm package uptime-kuma/
+
+      - name: Upload Chart Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: "*.tgz"
+
+
+  release:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package Helm Chart
+        run: |
+          helm package ./uptime-kuma/
+
+      - name: Push Helm Chart to Registry
+        run: |
+          helm push ./*.tgz oci://${{ env.REGISTRY }}/skillab-devops/charts
